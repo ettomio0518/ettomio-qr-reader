@@ -110,15 +110,22 @@
       }
     }
 
-    // カメラ読み取り開始
-	startButton.addEventListener('click', () => {
-	  resultElement.textContent = ""; // 前回の結果をクリア
-	  codeReader.decodeFromVideoDevice(null, videoElement, (result, err) => {
-	    if (result) {
-	      displayResult(result.getText());
-	    }
-	  });
-	});
+    startButton.addEventListener('click', async () => {
+      resultElement.textContent = ""; // 前回の結果をクリア
+
+      try {
+        await codeReader.reset(); // ← カメラを明示的にリセット
+        await codeReader.decodeFromVideoDevice(null, videoElement, (result, err) => {
+          if (result) {
+            displayResult(result.getText());
+          }
+        });
+      } catch (error) {
+        resultElement.textContent = "カメラの起動に失敗しました";
+        console.error("Camera error:", error);
+      }
+    });
+
 
     // ファイル画像から読み取り
 	fileInput.addEventListener('change', (e) => {
@@ -146,7 +153,7 @@
 </p>
 
   <footer>
-    © 20250827 ettomio
+    © 20250905 ettomio
   </footer>
     
 </body>
