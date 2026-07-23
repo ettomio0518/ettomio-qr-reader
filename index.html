@@ -18,17 +18,52 @@
       margin-top: 1em;
     }
 
-	#video {
-	  width: 90%;
-	  max-width: 400px;
-	  height: 240px; /* ← ここを追加して縦を縮める */
-	  background-color: #f5f5f5;
-	  border: 2px solid #333;
-	  border-radius: 8px;
-	  margin-top: 1em;
-	  object-fit: cover; /* 映像の切り取りを自然に */
-	}
+    /* カメラ枠の縦幅を大きく変更 */
+    #videoContainer {
+      position: relative;
+      width: 95%;
+      max-width: 500px;
+      margin: 1em auto 0;
+      overflow: hidden;
+      border: 2px solid #333;
+      border-radius: 8px;
+      background-color: #f5f5f5;
+    }
 
+    #video {
+      width: 100%;
+      height: 380px; /* 縦幅を拡大 */
+      object-fit: cover; /* 映像の切り取りを自然に */
+      display: block;
+      transform-origin: center center;
+      transition: transform 0.2s ease;
+    }
+
+    /* ズームボタンエリア */
+    #zoomControls {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .zoom-btn {
+      margin-top: 0;
+      padding: 0.5em 1.2em;
+      font-size: 1em;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background-color: #ffffff;
+      color: #333;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .zoom-btn.active {
+      background-color: #0078d7;
+      color: white;
+      border-color: #005a9e;
+    }
 
     #fileInput {
       margin-top: 1em;
@@ -61,35 +96,44 @@
       background-color: #005a9e;
     }
     
-	#fileInput {
-	  margin-top: 1em;
-	  padding: 0.5em;
-	  font-size: 1em;
-	  background-color: #ccffff;
-	  border: 1px solid #999;
-	  border-radius: 6px;
-	  cursor: pointer;
-	}
+    #fileInput {
+      margin-top: 1em;
+      padding: 0.5em;
+      font-size: 1em;
+      background-color: #ccffff;
+      border: 1px solid #999;
+      border-radius: 6px;
+      cursor: pointer;
+    }
 
-	#fileLabel {
-	  display: block;
-	  margin-top: 1em;
-	  font-size: 0.95em;
-	  color: #333;
-	}
+    #fileLabel {
+      display: block;
+      margin-top: 1em;
+      font-size: 0.95em;
+      color: #333;
+    }
     
   </style>
   <script src="https://unpkg.com/@zxing/library@latest"></script>
 </head>
 <body>
-  <h1>QRコード読み取り</h1>
+  <h1>QRリーダー & 拡大鏡</h1>
 
-  <video id="video" autoplay></video><br>
-  <button id="startButton">カメラで読み取る</button><br><br>
+  <div id="videoContainer">
+    <video id="video" autoplay></video>
+  </div>
+
+  <!-- ズームコントロールボタン -->
+  <div id="zoomControls">
+    <button type="button" class="zoom-btn active" id="btnZoom1">1x</button>
+    <button type="button" class="zoom-btn" id="btnZoom2">2x</button>
+    <button type="button" class="zoom-btn" id="btnZoom4">4x</button>
+  </div>
+
+  <button id="startButton">カメラで読み取る</button><br>
 
   <label id="fileLabel" for="fileInput">画像ファイルを選択してください</label>
   <input type="file" id="fileInput" accept="image/*"><br>
-
 
   <div id="result">読み取り結果がここに表示されます</div>
 
@@ -99,6 +143,12 @@
     const resultElement = document.getElementById('result');
     const fileInput = document.getElementById('fileInput');
     const startButton = document.getElementById('startButton');
+
+    const btnZoom1 = document.getElementById('btnZoom1');
+    const btnZoom2 = document.getElementById('btnZoom2');
+    const btnZoom4 = document.getElementById('btnZoom4');
+
+    let currentZoom = 1;
 
     function displayResult(text) {
       // URLならリンク化、それ以外はそのまま表示
@@ -110,6 +160,42 @@
       }
     }
 
+    // ズーム適用関数
+    function applyZoom(zoomValue) {
+      currentZoom = zoomValue;
+      
+      // ボタンの見た目を更新
+      [btnZoom1, btnZoom2, btnZoom4].forEach(btn => btn.classList.remove('active'));
+      if (zoomValue === 1) btnZoom1.classList.add('active');
+      if (zoomValue === 2) btnZoom2.classList.add('active');
+      if (zoomValue === 4) btnZoom4.classList.add('active');
+
+      // 1. ハードウェアカメラズームの適用を試みる
+      if (videoElement.srcObject) {
+        const stream = videoElement.srcObject;
+        const tracks = stream.getVideoTracks();
+        if (tracks.length > 0) {
+          const track = tracks[0];
+          const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+          if (capabilities.zoom) {
+            const min = capabilities.zoom.min || 1;
+            const max = capabilities.zoom.max || 1;
+            const targetZoom = Math.min(Math.max(zoomValue, min), max);
+            track.applyConstraints({
+              advanced: [{ zoom: targetZoom }]
+            }).catch(err => console.log('Hardware zoom not supported:', err));
+          }
+        }
+      }
+
+      // 2. CSS表示拡大（フォールバックおよび補正用）
+      videoElement.style.transform = `scale(${zoomValue})`;
+    }
+
+    btnZoom1.addEventListener('click', () => applyZoom(1));
+    btnZoom2.addEventListener('click', () => applyZoom(2));
+    btnZoom4.addEventListener('click', () => applyZoom(4));
+
     startButton.addEventListener('click', async () => {
       resultElement.textContent = ""; // 前回の結果をクリア
 
@@ -120,29 +206,30 @@
             displayResult(result.getText());
           }
         });
+        // カメラ起動後に現在のズーム設定を再適用
+        applyZoom(currentZoom);
       } catch (error) {
         resultElement.textContent = "カメラの起動に失敗しました";
         console.error("Camera error:", error);
       }
     });
 
-
     // ファイル画像から読み取り
-	fileInput.addEventListener('change', (e) => {
-	  resultElement.textContent = ""; // 前回の結果をクリア
-	  const file = e.target.files[0];
-	  if (!file) return;
+    fileInput.addEventListener('change', (e) => {
+      resultElement.textContent = ""; // 前回の結果をクリア
+      const file = e.target.files[0];
+      if (!file) return;
 
-	  const img = new Image();
-	  img.onload = () => {
-	    codeReader.decodeFromImage(img).then(result => {
-	      displayResult(result.getText());
-	    }).catch(err => {
-	      resultElement.textContent = '読み取り失敗';
-	    });
-	  };
-	  img.src = URL.createObjectURL(file);
-	});
+      const img = new Image();
+      img.onload = () => {
+        codeReader.decodeFromImage(img).then(result => {
+          displayResult(result.getText());
+        }).catch(err => {
+          resultElement.textContent = '読み取り失敗';
+        });
+      };
+      img.src = URL.createObjectURL(file);
+    });
 
   </script>
   
@@ -153,7 +240,7 @@
 </p>
 
   <footer>
-    © 20250905 ettomio
+    © 20260724 ettomio
   </footer>
     
 </body>
