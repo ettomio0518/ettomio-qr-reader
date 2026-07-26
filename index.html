@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">  
-    <title>QRコードリーダー</title>
+    <title>QRリーダー & 拡大鏡</title>
   <style>
     body {
       font-family: sans-serif;
@@ -39,17 +39,17 @@
       transition: transform 0.2s ease;
     }
 
-    /* ズームボタンエリア */
+    /* ズーム＆ライトコントロールボタン */
     #zoomControls {
       display: flex;
       justify-content: center;
-      gap: 10px;
+      gap: 8px;
       margin-top: 10px;
     }
 
     .zoom-btn {
       margin-top: 0;
-      padding: 0.5em 1.2em;
+      padding: 0.5em 1em;
       font-size: 1em;
       border: 1px solid #333;
       border-radius: 6px;
@@ -63,6 +63,25 @@
       background-color: #0078d7;
       color: white;
       border-color: #005a9e;
+    }
+
+    /* ライトボタン専用のスタイル（少し色を変えて区別しやすく） */
+    .light-btn {
+      margin-top: 0;
+      padding: 0.5em 1em;
+      font-size: 1em;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background-color: #e0e0e0;
+      color: #333;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .light-btn.active {
+      background-color: #f39c12; /* 点灯時はオレンジ色に */
+      color: white;
+      border-color: #d68910;
     }
 
     #fileInput {
@@ -123,14 +142,15 @@
     <video id="video" autoplay></video>
   </div>
 
-  <!-- ズームコントロールボタン -->
+  <!-- ズームコントロール＆ライトボタン -->
   <div id="zoomControls">
     <button type="button" class="zoom-btn active" id="btnZoom1">1x</button>
     <button type="button" class="zoom-btn" id="btnZoom2">2x</button>
     <button type="button" class="zoom-btn" id="btnZoom4">4x</button>
+    <button type="button" class="light-btn" id="btnLight">🔦 ライト</button>
   </div>
 
-  <button id="startButton">カメラで読み取る</button><br>
+  <button id="startButton">カメラで読み取る</button><br><br>
 
   <label id="fileLabel" for="fileInput">画像ファイルを選択してください</label>
   <input type="file" id="fileInput" accept="image/*"><br>
@@ -147,11 +167,12 @@
     const btnZoom1 = document.getElementById('btnZoom1');
     const btnZoom2 = document.getElementById('btnZoom2');
     const btnZoom4 = document.getElementById('btnZoom4');
+    const btnLight = document.getElementById('btnLight');
 
     let currentZoom = 1;
+    let isLightOn = false;
 
     function displayResult(text) {
-      // URLならリンク化、それ以外はそのまま表示
       const urlPattern = /^(https?:\/\/[^\s]+)/;
       if (urlPattern.test(text)) {
         resultElement.innerHTML = `<a href="${text}" target="_blank">${text}</a>`;
@@ -164,13 +185,11 @@
     function applyZoom(zoomValue) {
       currentZoom = zoomValue;
       
-      // ボタンの見た目を更新
       [btnZoom1, btnZoom2, btnZoom4].forEach(btn => btn.classList.remove('active'));
       if (zoomValue === 1) btnZoom1.classList.add('active');
       if (zoomValue === 2) btnZoom2.classList.add('active');
       if (zoomValue === 4) btnZoom4.classList.add('active');
 
-      // 1. ハードウェアカメラズームの適用を試みる
       if (videoElement.srcObject) {
         const stream = videoElement.srcObject;
         const tracks = stream.getVideoTracks();
@@ -188,25 +207,61 @@
         }
       }
 
-      // 2. CSS表示拡大（フォールバックおよび補正用）
       videoElement.style.transform = `scale(${zoomValue})`;
+    }
+
+    // ライト（トーチ）切替関数
+    async function toggleLight() {
+      if (!videoElement.srcObject) {
+        resultElement.textContent = "先にカメラを起動してください";
+        return;
+      }
+
+      try {
+        const stream = videoElement.srcObject;
+        const tracks = stream.getVideoTracks();
+        if (tracks.length > 0) {
+          const track = tracks[0];
+          const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+          
+          if (capabilities.torch) {
+            isLightOn = !isLightOn;
+            await track.applyConstraints({
+              advanced: [{ torch: isLightOn }]
+            });
+
+            if (isLightOn) {
+              btnLight.classList.add('active');
+            } else {
+              btnLight.classList.remove('active');
+            }
+          } else {
+            resultElement.textContent = "この端末ではライトを制御できません";
+          }
+        }
+      } catch (err) {
+        console.error("Torch error:", err);
+        resultElement.textContent = "ライトの切り替えに失敗しました";
+      }
     }
 
     btnZoom1.addEventListener('click', () => applyZoom(1));
     btnZoom2.addEventListener('click', () => applyZoom(2));
     btnZoom4.addEventListener('click', () => applyZoom(4));
+    btnLight.addEventListener('click', () => toggleLight());
 
     startButton.addEventListener('click', async () => {
-      resultElement.textContent = ""; // 前回の結果をクリア
+      resultElement.textContent = ""; 
+      isLightOn = false;
+      btnLight.classList.remove('active');
 
       try {
-        await codeReader.reset(); // ← カメラを明示的にリセット
+        await codeReader.reset(); 
         await codeReader.decodeFromVideoDevice(null, videoElement, (result, err) => {
           if (result) {
             displayResult(result.getText());
           }
         });
-        // カメラ起動後に現在のズーム設定を再適用
         applyZoom(currentZoom);
       } catch (error) {
         resultElement.textContent = "カメラの起動に失敗しました";
@@ -216,7 +271,7 @@
 
     // ファイル画像から読み取り
     fileInput.addEventListener('change', (e) => {
-      resultElement.textContent = ""; // 前回の結果をクリア
+      resultElement.textContent = ""; 
       const file = e.target.files[0];
       if (!file) return;
 
@@ -240,7 +295,7 @@
 </p>
 
   <footer>
-    © 20260724 ettomio
+    © 20260726 ettomio
   </footer>
     
 </body>
